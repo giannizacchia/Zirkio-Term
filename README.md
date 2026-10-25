@@ -96,7 +96,6 @@ src/
   sudo.rs      sudo prompt detection and input
   config.rs    TOML configuration
   prefs.rs     preferences window
-tests/         test scripts (GTK, sudo, scp, measurements)
 ```
 
 ## License

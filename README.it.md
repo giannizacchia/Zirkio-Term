@@ -96,7 +96,6 @@ src/
   sudo.rs      riconoscimento del prompt di sudo e inserimento
   config.rs    configurazione TOML
   prefs.rs     finestra delle preferenze
-tests/         script di collaudo (GTK, sudo, scp, misure)
 ```
 
 ## Licenza
