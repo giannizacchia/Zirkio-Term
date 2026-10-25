@@ -1,0 +1,17 @@
+# File generati dai build e da cargo
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# Binari e pacchetti prodotti localmente
+*.apk
+*.deb
+*.pkg.tar.zst
+*.AppImage
+
+# Editor e file di sistema
+*.swp
+*~
+.DS_Store
+.idea/
+.vscode/
