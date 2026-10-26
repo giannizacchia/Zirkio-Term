@@ -182,6 +182,11 @@ pub fn encode_key(keyval: Option<u32>, m: Mods, modes: &Modes) -> Option<Vec<u8>
             n if n >= 15 => {
                 let f = n - 15;
                 match f {
+                    // SS3 non ha posto per i modificatori: con Shift/Ctrl/Alt xterm
+                    // passa a CSI 1;<m>P..S (es. Ctrl-F4 = "\x1b[1;5S").
+                    0..=3 if m.shift || m.ctrl || m.alt || m.sup => {
+                        csi_final(&mut out, b'P' + f as u8, m);
+                    }
                     0 => out.extend_from_slice(b"\x1bOP"),
                     1 => out.extend_from_slice(b"\x1bOQ"),
                     2 => out.extend_from_slice(b"\x1bOR"),
@@ -323,6 +328,19 @@ mod tests {
         let mut mo = modes();
         mo.app_cursor = true;
         assert_eq!(encode_key(Some(keys::UP), m, &mo).unwrap(), b"\x1bOA");
+    }
+
+    #[test]
+    fn tasti_f_con_modificatore() {
+        let m = Mods::default();
+        assert_eq!(encode_key(Some(keys::F4), m, &modes()).unwrap(), b"\x1bOS");
+        let ctrl = Mods { ctrl: true, ..Default::default() };
+        // Ctrl-F4: SS3 non porta i modificatori, xterm usa CSI 1;5S
+        assert_eq!(encode_key(Some(keys::F4), ctrl, &modes()).unwrap(), b"\x1b[1;5S");
+        let shift = Mods { shift: true, ..Default::default() };
+        assert_eq!(encode_key(Some(keys::F1), shift, &modes()).unwrap(), b"\x1b[1;2P");
+        // F5 e oltre passavano già dalle CSI con il modificatore
+        assert_eq!(encode_key(Some(keys::F5), ctrl, &modes()).unwrap(), b"\x1b[15;5~");
     }
 
     #[test]
