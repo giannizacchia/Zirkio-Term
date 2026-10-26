@@ -4,10 +4,51 @@
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::process::CommandExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
+
+/// Cerca una voce del database terminfo, sia nella forma «a cartelle»
+/// (`<base>/x/xterm-direct`) sia in quella con l'iniziale in esadecimale
+/// (`<base>/78/xterm-direct`), e guarda anche `$TERMINFO`, `$TERMINFO_DIRS`
+/// e `~/.terminfo`.
+fn voce_terminfo(nome: &str) -> bool {
+    let iniziale = &nome[..1];
+    let a_cartelle = format!("{iniziale}/{nome}");
+    let esadecimale = format!("{:x}/{nome}", iniziale.as_bytes()[0]);
+
+    let mut basi: Vec<PathBuf> = Vec::new();
+    if let Some(t) = std::env::var_os("TERMINFO") {
+        basi.push(PathBuf::from(t));
+    }
+    if let Some(t) = std::env::var_os("TERMINFO_DIRS") {
+        basi.extend(std::env::split_paths(&t));
+    }
+    if let Some(h) = std::env::var_os("HOME") {
+        basi.push(PathBuf::from(h).join(".terminfo"));
+    }
+    for b in ["/usr/share/terminfo", "/usr/lib/terminfo", "/lib/terminfo", "/etc/terminfo"] {
+        basi.push(PathBuf::from(b));
+    }
+
+    basi.iter().any(|b| b.join(&a_cartelle).is_file() || b.join(&esadecimale).is_file())
+}
+
+/// Nome di `TERM` da dichiarare ai programmi che girano dentro il terminale.
+///
+/// `xterm-direct` dice la verità — qui il colore a 24 bit funziona — ed è quello
+/// che cercano i programmi per attivare il truecolor (per esempio `mc` carica le
+/// skin truecolor solo con un `TERM` `*-direct*`). Se però sul sistema manca la
+/// voce terminfo si resta su `xterm-256color`: un `TERM` senza voce manda in tilt
+/// curses.
+pub fn nome_term() -> &'static str {
+    if voce_terminfo("xterm-direct") {
+        "xterm-direct"
+    } else {
+        "xterm-256color"
+    }
+}
 
 pub struct Pty {
     master: OwnedFd,
@@ -97,7 +138,7 @@ impl Pty {
             .stdin(Stdio::from(stdin_file))
             .stdout(Stdio::from(stdout_file))
             .stderr(Stdio::from(stderr_file))
-            .env("TERM", "xterm-256color")
+            .env("TERM", nome_term())
             .env("COLORTERM", "truecolor")
             .env("TERM_PROGRAM", "zirkio-term")
             .env("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"))
@@ -351,4 +392,37 @@ pub fn open_url(url: &str) {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn voce_terminfo_cerca_nel_database() {
+        let base = std::env::temp_dir().join(format!("zirkio-term-ti-{}", std::process::id()));
+        let voce = base.join("78").join("xterm-direct"); // forma con l'iniziale in esadecimale
+        std::fs::create_dir_all(voce.parent().unwrap()).unwrap();
+        std::fs::write(&voce, b"").unwrap();
+
+        let vecchio = std::env::var_os("TERMINFO");
+        unsafe { std::env::set_var("TERMINFO", &base) };
+        assert!(voce_terminfo("xterm-direct"), "la voce finta deve essere trovata");
+        assert!(!voce_terminfo("zirkio-inesistente"));
+
+        match vecchio {
+            Some(v) => unsafe { std::env::set_var("TERMINFO", v) },
+            None => unsafe { std::env::remove_var("TERMINFO") },
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn nome_term_dichiara_solo_voci_vere() {
+        // Sul sistema puo' esserci o non esserci xterm-direct: in entrambi i casi
+        // il nome scelto deve essere una voce terminfo esistente.
+        let nome = nome_term();
+        assert!(voce_terminfo(nome), "TERM={nome} non e' nel database terminfo");
+        assert!(nome == "xterm-direct" || nome == "xterm-256color");
+    }
 }
